@@ -240,6 +240,7 @@ public sealed class CreateStudentValidator : AbstractValidator<CreateStudentComm
     {
         RuleFor(x => x.FirstName).NotEmpty().MaximumLength(100);
         RuleFor(x => x.Email).NotEmpty().EmailAddress();
+        RuleFor(x => x.DateOfBirth).NotEmpty().LessThanOrEqualTo(DateTime.Now);
     }
 }
 ```
