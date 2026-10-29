@@ -57,9 +57,10 @@ builder.Services.AddOpenApi(options =>
 });
 
 var app = builder.Build();
+await app.Services.MigrateAndSeedAsync();
 
 // Seed data
-using (var scope = app.Services.CreateScope())
+/*using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     dbContext.Students.AddRange(
@@ -106,7 +107,7 @@ using (var scope = app.Services.CreateScope())
     );
 
     dbContext.SaveChanges();
-}
+}*/
 
 // Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())
