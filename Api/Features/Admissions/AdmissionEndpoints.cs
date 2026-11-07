@@ -1,11 +1,15 @@
 namespace Api.Features.Admissions;
 
-using Application.Features.Admissions.GetAllAdmissions;
+using Api.Common.Authorization;
 using Api.Common.Extensions;
 using Application.Abstractions.Messaging;
 using Application.Features.Admissions.CreateAdmission;
 using Application.Features.Admissions.GetAdmissionById;
+using Application.Features.Admissions.GetAllAdmissions;
 using Domain.Common;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 
 public static class AdmissionEndpoints
 {
@@ -17,16 +21,18 @@ public static class AdmissionEndpoints
 
         group.MapPost("/", Create)
             .WithName("CreateAdmission")
-            .WithSummary("Create a new admission with courses");
+            .WithSummary("Create a new admission with courses")
+            .RequireAuthorization(Policies.CanManageAdmissions);
 
         group.MapGet("/{id:guid}", GetById)
             .WithName("GetAdmissionById")
-            .WithSummary("Get admission by ID with courses");
+            .WithSummary("Get admission by ID with courses")
+            .RequireAuthorization();
 
         group.MapGet("/", GetAll)
             .WithName("GetAllAdmissions")
-            .WithSummary("Get all admissions");
-
+            .WithSummary("Get all admissions")
+            .RequireAuthorization(Policies.CanManageAdmissions);
     }
 
     private static async Task<IResult> Create(
@@ -51,6 +57,7 @@ public static class AdmissionEndpoints
             ? TypedResults.Ok(result.Value)
             : result.ToProblemDetails();
     }
+
     private static async Task<IResult> GetAll(
         IQueryHandler<GetAllAdmissionsQuery, Result<GetAllAdmissionsResponse>> handler,
         CancellationToken cancellationToken)
@@ -58,8 +65,7 @@ public static class AdmissionEndpoints
         var query = new GetAllAdmissionsQuery();
         var result = await handler.HandleAsync(query, cancellationToken);
         return result.IsSuccess
-        ? TypedResults.Ok(result.Value)
-        : result.ToProblemDetails();
+            ? TypedResults.Ok(result.Value)
+            : result.ToProblemDetails();
     }
-
 }

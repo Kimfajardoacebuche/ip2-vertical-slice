@@ -30,9 +30,10 @@ using Scalar.AspNetCore;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-
+using Api.Common.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
+
 var jwtSection = builder.Configuration.GetSection(JwtOptions.SectionName);
 
 // Database
@@ -50,20 +51,15 @@ builder.Services.AddScoped<IQueryHandler<GetAllCoursesQuery, Result<GetAllCourse
 builder.Services.AddScoped<IQueryHandler<GetCourseByIdQuery, Result<GetCourseByIdResponse>>, GetCourseByIdQueryHandler>();
 builder.Services.AddScoped<ICommandHandler<CreateAdmissionCommand, Result<CreateAdmissionResponse>>, CreateAdmissionCommandHandler>();
 builder.Services.AddScoped<IQueryHandler<GetAdmissionByIdQuery, Result<GetAdmissionByIdResponse>>, GetAdmissionByIdQueryHandler>();
-builder.Services.AddScoped<IQueryHandler<GetAllAdmissionsQuery,Result<GetAllAdmissionsResponse>>, GetAllAdmissionsQueryHandler>();
-builder.Services.AddScoped<ICommandHandler<UpdateCourseCommand, Result<UpdateCourseResponse>>,UpdateCourseCommandHandler>();
-builder.Services.AddScoped<ICommandHandler<DeleteCourseCommand, Result>,DeleteCourseCommandHandler>();
+builder.Services.AddScoped<IQueryHandler<GetAllAdmissionsQuery, Result<GetAllAdmissionsResponse>>, GetAllAdmissionsQueryHandler>();
+builder.Services.AddScoped<ICommandHandler<UpdateCourseCommand, Result<UpdateCourseResponse>>, UpdateCourseCommandHandler>();
+builder.Services.AddScoped<ICommandHandler<DeleteCourseCommand, Result>, DeleteCourseCommandHandler>();
 builder.Services.AddScoped<IPasswordHasher, Infrastructure.Authentication.PasswordHasher>();
 builder.Services.AddScoped<ITokenService, JwtTokenService>();
-builder.Services.AddScoped<ICommandHandler<RegisterCommand, Result<RegisterResponse>>,RegisterCommandHandler>();
-builder.Services.AddScoped<ICommandHandler<LoginCommand, Result<LoginResponse>>,LoginCommandHandler>();
-
+builder.Services.AddScoped<ICommandHandler<RegisterCommand, Result<RegisterResponse>>, RegisterCommandHandler>();
+builder.Services.AddScoped<ICommandHandler<LoginCommand, Result<LoginResponse>>, LoginCommandHandler>();
 builder.Services.AddHostedService<Infrastructure.BackgroundJobs.RevokedTokenCleanupService>();
-
 builder.Services.AddSingleton(TimeProvider.System);
-
-
-
 
 // API
 builder.Services.AddEndpointsApiExplorer();
@@ -90,7 +86,8 @@ builder.Services.AddOpenApi(options =>
     });
 });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAppAuthorization();
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 .AddJwtBearer(options =>
 {
@@ -103,7 +100,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         ValidIssuer = jwtSection["Issuer"],
         ValidAudience = jwtSection["Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(
-    Encoding.UTF8.GetBytes(jwtSection["SigningKey"]!)),
+            Encoding.UTF8.GetBytes(jwtSection["SigningKey"]!)),
         ClockSkew = TimeSpan.FromSeconds(30)
     };
     options.Events = new JwtBearerEvents
@@ -116,7 +113,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             var jti = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Jti);
             var sub = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Sub);
 
-
             // 1. Check if specific token JTI is revoked
             if (jti is not null && await dbContext.RevokedTokens.AnyAsync(r => r.Jti == jti))
             {
@@ -127,7 +123,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             // 2. Check if token was issued before a "logout-all" event
             if (sub is not null && Guid.TryParse(sub, out var userId))
             {
-                // Look for the iat claim across different possible claim name mappings
                 var iatRaw = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Iat)
                           ?? context.Principal?.FindFirstValue("issuedat")
                           ?? context.Principal?.FindFirstValue("iat");
@@ -143,15 +138,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 }
             }
         }
-};
+    };
 });
-
 
 builder.Services.AddOptions<JwtOptions>()
 .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
 .Validate(o => !string.IsNullOrWhiteSpace(o.SigningKey), "Jwt:SigningKey is required. Set it with: dotnet user-secrets set \"Jwt:SigningKey\"\"<value>\"")
-.Validate(o => System.Text.Encoding.UTF8.GetByteCount(o.SigningKey ?? "") >= 32,
-"Jwt:SigningKey must be at least 256 bits (32 characters).")
+.Validate(o => System.Text.Encoding.UTF8.GetByteCount(o.SigningKey ?? "") >= 32, "Jwt:SigningKey must be at least 256 bits (32 characters).")
 .ValidateOnStart();
 
 builder.Services.AddEndpointsApiExplorer();
@@ -166,57 +159,8 @@ builder.Services.AddOpenApi(options =>
 });
 
 var app = builder.Build();
+
 await app.Services.MigrateAndSeedAsync();
-
-// Seed data
-/*using (var scope = app.Services.CreateScope())
-{
-    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    dbContext.Students.AddRange(
-        new Domain.Entities.Student
-        {
-            Id = Guid.NewGuid(),
-            FirstName = "John",
-            LastName = "Doe",
-            Email = "john.doe@example.com",
-            DateOfBirth = new DateTime(2000, 1, 15)
-        },
-        new Domain.Entities.Student
-        {
-            Id = Guid.NewGuid(),
-            FirstName = "Jane",
-            LastName = "Smith",
-            Email = "jane.smith@example.com",
-            DateOfBirth = new DateTime(2001, 5, 20)
-        }
-    );
-
-    dbContext.Courses.AddRange(
-        new Domain.Entities.Course
-        {
-            Id = Guid.NewGuid(),
-            Title = "Introduction to Programming",
-            Code = "CS101",
-            Credits = 3
-        },
-        new Domain.Entities.Course
-        {
-            Id = Guid.NewGuid(),
-            Title = "Data Structures",
-            Code = "CS201",
-            Credits = 4
-        },
-        new Domain.Entities.Course
-        {
-            Id = Guid.NewGuid(),
-            Title = "Database Systems",
-            Code = "CS301",
-            Credits = 3
-        }
-    );
-
-    dbContext.SaveChanges();
-}*/
 
 // Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())
@@ -228,15 +172,33 @@ if (app.Environment.IsDevelopment())
 // Root endpoint
 app.MapGet("/", () => "Welcome to the Vertical Slice API! Go to /scalar/v1 for API documentation.");
 
+// StatusCodePages middleware for custom 401/403 ProblemDetails JSON responses
+app.UseStatusCodePages(async context =>
+{
+    var response = context.HttpContext.Response;
+    if (response.StatusCode is StatusCodes.Status401Unauthorized
+        or StatusCodes.Status403Forbidden)
+    {
+        response.ContentType = "application/problem+json";
+        await response.WriteAsJsonAsync(new Microsoft.AspNetCore.Mvc.ProblemDetails
+        {
+            Status = response.StatusCode,
+            Title = response.StatusCode == StatusCodes.Status401Unauthorized
+                ? "Unauthorized" : "Forbidden",
+            Detail = response.StatusCode == StatusCodes.Status401Unauthorized
+                ? "Authentication is required to access this resource."
+                : "You do not have permission to perform this action."
+        });
+    }
+});
+
+app.UseAuthentication();
+app.UseAuthorization();
+
 // Map endpoints
 app.MapStudentEndpoints();
 app.MapCourseEndpoints();
 app.MapAdmissionEndpoints();
-
 app.MapAuthEndpoints();
 
 app.Run();
-
-
-
-

@@ -1,5 +1,6 @@
 namespace Api.Features.Courses;
 
+using Api.Common.Authorization;
 using Api.Common.Extensions;
 using Application.Abstractions.Messaging;
 using Application.Features.Courses.CreateCourse;
@@ -8,8 +9,9 @@ using Application.Features.Courses.GetAllCourses;
 using Application.Features.Courses.GetCourseById;
 using Application.Features.Courses.UpdateCourse;
 using Domain.Common;
-using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
-
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 
 public static class CourseEndpoints
 {
@@ -21,24 +23,30 @@ public static class CourseEndpoints
 
         group.MapGet("/", GetAll)
             .WithName("GetAllCourses")
-            .WithSummary("Get all courses");
+            .WithSummary("Get all courses")
+            .RequireAuthorization();
 
         group.MapPost("/", Create)
             .WithName("CreateCourse")
-            .WithSummary("Create a new course");
+            .WithSummary("Create a new course")
+            .RequireAuthorization(Policies.CanManageCourses);
 
         group.MapGet("/{id:guid}", GetById)
             .WithName("GetCourseById")
-            .WithSummary("Get course by ID");
+            .WithSummary("Get course by ID")
+            .RequireAuthorization();
 
         group.MapPut("/{id:guid}", Update)
             .WithName("UpdateCourse")
-            .WithSummary("Update an existing course");
+            .WithSummary("Update an existing course")
+            .RequireAuthorization(Policies.CanManageCourses);
 
         group.MapDelete("/{id:guid}", Delete)
             .WithName("DeleteCourse")
-            .WithSummary("Delete a course");
+            .WithSummary("Delete a course")
+            .RequireAuthorization(Policies.CanManageCourses);
     }
+
     public sealed record UpdateCourseRequest(string Title, string Code, int Credits);
 
     private static async Task<IResult> GetAll(
@@ -74,23 +82,24 @@ public static class CourseEndpoints
             ? TypedResults.Ok(result.Value)
             : result.ToProblemDetails();
     }
+
     private static async Task<IResult> Update(
         Guid id,
         UpdateCourseRequest request,
         ICommandHandler<UpdateCourseCommand, Result<UpdateCourseResponse>> handler,
-     CancellationToken cancellationToken)
+        CancellationToken cancellationToken)
     {
         var command = new UpdateCourseCommand(id, request.Title, request.Code, request.Credits);
         var result = await handler.HandleAsync(command, cancellationToken);
         return result.Match(
-        onSuccess: value => TypedResults.Ok(value),
-        onFailure: _ => result.ToProblemDetails());
+            onSuccess: value => TypedResults.Ok(value),
+            onFailure: _ => result.ToProblemDetails());
     }
 
     private static async Task<IResult> Delete(
-    Guid id,
-    ICommandHandler<DeleteCourseCommand, Result> handler,
-    CancellationToken cancellationToken)
+        Guid id,
+        ICommandHandler<DeleteCourseCommand, Result> handler,
+        CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(
             new DeleteCourseCommand(id),
@@ -103,6 +112,4 @@ public static class CourseEndpoints
 
         return result.ToProblemDetails();
     }
-
-
 }
