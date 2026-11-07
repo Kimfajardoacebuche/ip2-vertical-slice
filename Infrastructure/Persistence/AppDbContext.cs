@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 public sealed class AppDbContext : DbContext, IAppDbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
-
+    public DbSet<RevokedToken> RevokedTokens => Set<RevokedToken>();
     public DbSet<Student> Students => Set<Student>();
     public DbSet<Course> Courses => Set<Course>();
     public DbSet<Admission> Admissions => Set<Admission>();
@@ -64,6 +64,11 @@ public sealed class AppDbContext : DbContext, IAppDbContext
             .WithMany()
             .HasForeignKey(u => u.StudentId)
             .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<RevokedToken>(entity =>
+        {
+            entity.HasKey(r => r.Jti);
         });
     }
 }

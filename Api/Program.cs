@@ -22,12 +22,14 @@ using Domain.Common;
 using FluentValidation;
 using Infrastructure.Authentication;
 using Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
-using Scalar.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using System.Text;
 using Microsoft.OpenApi;
+using Scalar.AspNetCore;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -56,9 +58,9 @@ builder.Services.AddScoped<ITokenService, JwtTokenService>();
 builder.Services.AddScoped<ICommandHandler<RegisterCommand, Result<RegisterResponse>>,RegisterCommandHandler>();
 builder.Services.AddScoped<ICommandHandler<LoginCommand, Result<LoginResponse>>,LoginCommandHandler>();
 
+builder.Services.AddHostedService<Infrastructure.BackgroundJobs.RevokedTokenCleanupService>();
+
 builder.Services.AddSingleton(TimeProvider.System);
-
-
 
 
 
@@ -104,7 +106,46 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     Encoding.UTF8.GetBytes(jwtSection["SigningKey"]!)),
         ClockSkew = TimeSpan.FromSeconds(30)
     };
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = async context =>
+        {
+            var dbContext = context.HttpContext.RequestServices
+                .GetRequiredService<Application.Abstractions.Data.IAppDbContext>();
+
+            var jti = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Jti);
+            var sub = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Sub);
+
+
+            // 1. Check if specific token JTI is revoked
+            if (jti is not null && await dbContext.RevokedTokens.AnyAsync(r => r.Jti == jti))
+            {
+                context.Fail("Token has been revoked.");
+                return;
+            }
+
+            // 2. Check if token was issued before a "logout-all" event
+            if (sub is not null && Guid.TryParse(sub, out var userId))
+            {
+                // Look for the iat claim across different possible claim name mappings
+                var iatRaw = context.Principal?.FindFirstValue(JwtRegisteredClaimNames.Iat)
+                          ?? context.Principal?.FindFirstValue("issuedat")
+                          ?? context.Principal?.FindFirstValue("iat");
+
+                if (iatRaw is not null && long.TryParse(iatRaw, out var iatUnix))
+                {
+                    var issuedAtUtc = DateTimeOffset.FromUnixTimeSeconds(iatUnix).UtcDateTime;
+                    var user = await dbContext.Users.FindAsync([userId]);
+                    if (user?.TokensValidFromUtc is { } validFrom && issuedAtUtc < validFrom)
+                    {
+                        context.Fail("Token was issued before the user's last sign-out-everywhere.");
+                    }
+                }
+            }
+        }
+};
 });
+
 
 builder.Services.AddOptions<JwtOptions>()
 .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
